@@ -1,5 +1,7 @@
 # [TODO MVC](https://todomvc.com/) Feliz.HTMX
 
+![preview](image.png)
+
  app in [F#](https://dotnet.microsoft.com/en-us/languages/fsharp) + [Feliz.ViewEngine.HTMX](https://github.com/Zaid-Ajaj/Feliz.ViewEngine.Htmx) and [HTMX](https://htmx.org/) library, implemented as a single `.fsx` fsharp interactive script.
 
  So it's essentially a full stack app in 1 file :) more or less.

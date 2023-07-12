@@ -267,43 +267,48 @@ let todoLi (todo: Todo) =
                     ]
                     Html.button [
                         prop.className "destroy"
+                        hx.swap "outerHTML"
                         hx.delete $"/todos/{todo.Id}"
-                        hx.hyperscript  $"on htmx:afterOnLoad remove #todo-{todo.Id}"
+                        hx.target $"#todo-{todo.Id}"
+                        //hx.hyperscript  $"on htmx:afterOnLoad remove #todo-{todo.Id}"
                     ]
                 ]
             ]
         ]
     ]
 
-let oldTodoLi item =
-    Html.li [
-        prop.id $"todo-{item.Id}"
-        prop.className (if item.Completed then "completed" else "not-completed")
-        prop.children [
-            Html.input [ 
-                prop.type' "checkbox"
-                prop.value true
-                prop.text "Completed" 
-                hx.trigger "click"
-                hx.post $"/todos/{item.Id}"
-                //prop.onClick (fun _ -> dispatch (ToggleTodo todo.Id))
-            ]
-            Html.div item.Text
-                // prop.onBlur (fun text -> dispatch (UpdateTodoText (todo.Id, text))) 
-            Html.button [ 
-                //prop.onClick (fun _ -> dispatch (RemoveTodo todo.Id))
-                prop.text "Delete"
-                hx.delete $"/todos/{item.Id}"
-            ]
-        ]
-    ]
+// let oldTodoLi item =
+//     Html.li [
+//         prop.id $"todo-{item.Id}"
+//         prop.className (if item.Completed then "completed" else "not-completed")
+//         prop.children [
+//             Html.input [ 
+//                 prop.type' "checkbox"
+//                 prop.value true
+//                 prop.text "Completed" 
+//                 hx.trigger "click"
+//                 hx.post $"/todos/{item.Id}"
+//                 //prop.onClick (fun _ -> dispatch (ToggleTodo todo.Id))
+//             ]
+//             Html.div item.Text
+//                 // prop.onBlur (fun text -> dispatch (UpdateTodoText (todo.Id, text))) 
+//             Html.button [ 
+//                 //prop.onClick (fun _ -> dispatch (RemoveTodo todo.Id))
+//                 prop.text "Delete"
+//                 hx.delete $"/todos/{item.Id}"
+//             ]
+//         ]
+//     ]
 
 
 let currentTodos () = 
-    [
-        for item in todoRepository.GetTodos() do
-            todoLi item
-    ] |> listToHtml
+    if todoRepository.GetTodos().Length = 0 then
+        [ ] 
+    else [
+            for item in todoRepository.GetTodos() do
+                todoLi item
+        ] 
+    |> listToHtml
 
 let addTodo (httpFunc: HttpFunc) (ctx: HttpContext) =
     task {
@@ -361,10 +366,12 @@ let deleteTodo (id: int) (httpFunc: HttpFunc) (ctx: HttpContext) =
     task {
 
         todoRepository.DeleteTodo id |> ignore
+
+        printf $"count: {todoRepository.GetTodos().Length}"
         
-        let todosHtml = currentTodos()
+        let empty = [] |> listToHtml
         
-        return! todosHtml httpFunc ctx
+        return! empty httpFunc ctx
     }
 
 let getTodos (httpFunc : HttpFunc) (ctx: HttpContext) = 

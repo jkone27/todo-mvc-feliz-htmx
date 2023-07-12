@@ -189,6 +189,9 @@ let body =
         // ]
     ]
 
+
+
+
 let mainLayout = 
     Html.html [
         Html.head [
@@ -216,10 +219,24 @@ let mainLayout =
     |> toHtml
     
 
+
+    (**
+    
+
+    li(id='todo-' + todo.id, class={completed: todo.done === true})
+  .view
+    input.toggle(hx-patch='/todos/' + todo.id, type='checkbox', checked=todo.done, hx-target='#todo-' + todo.id, hx-swap="outerHTML")
+    label(hx-get='/todos/edit/' + todo.id, hx-target="#todo-" +  todo.id, hx-swap="outerHTML") #{todo.name}
+    button.destroy(hx-delete='/todos/' + todo.id, _="on htmx:afterOnLoad remove #todo-" + todo.id )
+    
+    *)
+
 let currentTodos () = 
     [
         for item in todoRepository.GetTodos() do
         Html.li [
+            prop.id $"todo-{item.Id}"
+            prop.className (if item.Completed then "completed" else "not-completed")
             Html.input [ 
                 prop.type' "checkbox"
                 prop.value true

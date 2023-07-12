@@ -38,9 +38,11 @@ type TodoRepository() =
     member this.AddTodo todoVal =
         let newTodo = { Id = todos.Count + 1; Text = todoVal ; Completed = false }
         todos.Add(newTodo)
+        newTodo
 
     member this.DeleteTodo id =
-        todos.RemoveAt(id)
+        let foundTodo = todos.Find(fun t -> t.Id = id)
+        todos.Remove(foundTodo)
 
     member this.ClearAllTodos() =
         todos.Clear()
@@ -49,25 +51,33 @@ type TodoRepository() =
         let foundTodo = todos.Find(fun t -> t.Id = id)
         let updatedTodo = { foundTodo with Text = todoVal ; Completed = completed }
         todos.Add(updatedTodo)
-        todos.Remove(foundTodo)
+        todos.Remove(foundTodo) |> ignore
+        updatedTodo
+
+    
+    member this.ToggleTodo id =
+        let foundTodo = todos.Find(fun t -> t.Id = id)
+        let updatedTodo = { foundTodo with Completed = ( foundTodo.Completed |> not) }
+        todos.Add(updatedTodo)
+        todos.Remove(foundTodo) |> ignore
+        updatedTodo
+
+    member this.ToggleAll() =
+
+        let newTodos = 
+            todos 
+            |> Seq.map (fun foundTodo -> 
+                let notCompleted = foundTodo.Completed |> not
+                { foundTodo with Completed = notCompleted }
+            )
+            |> ResizeArray
+
+        todos.Clear()
+        todos.AddRange(newTodos)
+        todos
 
 let todoRepository = new TodoRepository()
 
-
-let oldSection = 
-    [
-        Html.h1 "TODO MVC" 
-        Html.input [ 
-            hx.post "/todos"
-            hx.swap.outerHTML
-            // https://www.toptal.com/developers/keycode
-            hx.trigger "keyup[keyCode==13]"
-            hx.target "#todos"
-        ] 
-        Html.div [
-            prop.id "todos"
-        ]
-    ]
 
 // useful! https://thisfunctionaltom.github.io/Html2Feliz/
 
@@ -231,12 +241,45 @@ let mainLayout =
     
     *)
 
-let currentTodos () = 
-    [
-        for item in todoRepository.GetTodos() do
-        Html.li [
-            prop.id $"todo-{item.Id}"
-            prop.className (if item.Completed then "completed" else "not-completed")
+
+let todoLi (todo: Todo) = 
+    Html.li [
+        prop.className (if todo.Completed then "completed" else "todo")
+        prop.id $"todo-{todo.Id}"
+        prop.children [
+            Html.div [
+                prop.className "view"
+                prop.children [
+                    Html.input [
+                        prop.className "toggle"
+                        // prop.custom ("hx-patch", $"/todos/{todo.Id}")
+                        hx.post $"/todos/{todo.Id}/toggle"
+                        prop.type' "checkbox"
+                        prop.isChecked true
+                        hx.target $"#todo-{todo.Id}"
+                        hx.swap "outerHTML"
+                    ]
+                    Html.label [
+                        hx.post $"/todos/edit/{todo.Id}"
+                        hx.swap "outerHTML"
+                        hx.target $"#todo-{todo.Id}"
+                        prop.text todo.Text
+                    ]
+                    Html.button [
+                        prop.className "destroy"
+                        hx.delete $"/todos/{todo.Id}"
+                        hx.hyperscript  $"on htmx:afterOnLoad remove #todo-{todo.Id}"
+                    ]
+                ]
+            ]
+        ]
+    ]
+
+let oldTodoLi item =
+    Html.li [
+        prop.id $"todo-{item.Id}"
+        prop.className (if item.Completed then "completed" else "not-completed")
+        prop.children [
             Html.input [ 
                 prop.type' "checkbox"
                 prop.value true
@@ -250,21 +293,29 @@ let currentTodos () =
             Html.button [ 
                 //prop.onClick (fun _ -> dispatch (RemoveTodo todo.Id))
                 prop.text "Delete"
+                hx.delete $"/todos/{item.Id}"
             ]
         ]
+    ]
+
+
+let currentTodos () = 
+    [
+        for item in todoRepository.GetTodos() do
+            todoLi item
     ] |> listToHtml
 
-let postTodos (httpFunc: HttpFunc) (ctx: HttpContext) =
+let addTodo (httpFunc: HttpFunc) (ctx: HttpContext) =
     task {
         let! formCollection = ctx.Request.ReadFormAsync()
         let v = formCollection |> System.Text.Json.JsonSerializer.Serialize
         printfn $"got: {v}"
         let value = formCollection["title"] |> Seq.head
-        todoRepository.AddTodo(value)
+        let newTodo = todoRepository.AddTodo(value)
         
-        let todosHtml = currentTodos()
+        let singleTodo = todoLi newTodo |> toHtml
         
-        return! todosHtml httpFunc ctx
+        return! singleTodo httpFunc ctx
     }
 
 
@@ -273,11 +324,43 @@ let updateTodo (id: int) (httpFunc: HttpFunc) (ctx: HttpContext) =
         let! formCollection = ctx.Request.ReadFormAsync()
         let v = formCollection |> System.Text.Json.JsonSerializer.Serialize
         printfn $"got: {v}"
+
         let value = formCollection["title"] |> Seq.head
 
         let completed = bool.Parse(formCollection["completed"] |> Seq.head)
         
-        todoRepository.UpdateTodo id value completed |> ignore
+        let updatedTodo = todoRepository.UpdateTodo id value completed
+        
+        let updatedTodoHtml = todoLi updatedTodo |> toHtml
+        
+        return! updatedTodoHtml httpFunc ctx
+    }
+
+let toggle (id: int) (httpFunc: HttpFunc) (ctx: HttpContext) =
+    task {
+        
+        let updatedTodo = todoRepository.ToggleTodo id
+
+        let updatedTodoHtml = todoLi updatedTodo |> toHtml
+        
+        return! updatedTodoHtml httpFunc ctx
+    }
+
+
+let toggleAll (httpFunc: HttpFunc) (ctx: HttpContext) =
+    task {
+        
+        todoRepository.ToggleAll() |> ignore
+        
+        let todosHtml = currentTodos()
+        
+        return! todosHtml httpFunc ctx
+    }
+
+let deleteTodo (id: int) (httpFunc: HttpFunc) (ctx: HttpContext) =
+    task {
+
+        todoRepository.DeleteTodo id |> ignore
         
         let todosHtml = currentTodos()
         
@@ -296,9 +379,12 @@ let getTodos (httpFunc : HttpFunc) (ctx: HttpContext) =
 let endpoints = 
     router {
         get "/" mainLayout
-        post "/todos" postTodos
+        post "/todos" addTodo
         get "/todos" getTodos
-        postf "/todos/%i" updateTodo
+        postf "/todos/%i/toggle" toggle
+        post "/todos/toggle-all" toggleAll
+        postf "/todos/edit/%i" updateTodo
+        deletef "/todos/%i" deleteTodo
     }
 
 let app =

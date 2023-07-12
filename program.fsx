@@ -84,6 +84,7 @@ let body =
                                 hx.indicator "todo-form"
                                 hx.post "/todos"
                                 hx.swap "afterbegin"
+                                //hx.trigger "keyup[keyCode==13]"
                                 hx.target "#todo-list"
                                 prop.id "todo-form"
                                 prop.children [
@@ -127,7 +128,7 @@ let body =
                                 prop.className "todo-count"
                                 hx.indicator "footer"
                                 hx.swap "outerHTML"
-                                prop.text "Loading..."
+                                prop.text (todoRepository.GetTodos().Length)
                             ]
                             Html.ul [
                                 prop.className "filters"
@@ -183,9 +184,9 @@ let body =
                     ]
                 ]
             ]
-        Html.script [ 
-            prop.text " htmx.on('htmx:configRequest', function (evt) { var headers = evt.detail.headers || {}; headers['X-Requested-With'] = 'XMLHttpRequest'; evt.detail.headers = headers; });"
-        ]
+        // Html.script [ 
+        //     prop.text " htmx.on('htmx:configRequest', function (evt) { var headers = evt.detail.headers || {}; headers['X-Requested-With'] = 'XMLHttpRequest'; evt.detail.headers = headers; });"
+        // ]
     ]
 
 let mainLayout = 

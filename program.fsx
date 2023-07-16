@@ -37,6 +37,9 @@ module Services =
 
             todos |> Seq.filter(filter) |> List.ofSeq
 
+        member this.GetTodo(id) =
+            todos |> Seq.find(fun t -> t.Id = id)
+
         member this.AddTodo todoVal =
             let newTodo = { Id = todos.Count + 1; Text = todoVal ; Completed = false }
             todos.Add(newTodo)
@@ -49,9 +52,9 @@ module Services =
         member this.ClearAllTodos() =
             todos.Clear()
 
-        member this.UpdateTodo id todoVal completed =
+        member this.UpdateTodo id todoVal =
             let foundTodo = todos.Find(fun t -> t.Id = id)
-            let updatedTodo = { foundTodo with Text = todoVal ; Completed = completed }
+            let updatedTodo = { foundTodo with Text = todoVal }
             todos.Add(updatedTodo)
             todos.Remove(foundTodo) |> ignore
             updatedTodo
@@ -144,10 +147,10 @@ module View =
             ]
         ]
 
-    let todosCount count =
+    let todosCount (count: int) =
         Html.span [
             prop.id "todos-count"
-            prop.text 0
+            prop.text count
         ]
 
     let todoListFooter =
@@ -268,9 +271,25 @@ module View =
         
         *)
 
+    let editTodoText (todo: Todo) =
+        Html.form [
+            hx.post $"/todos/update/{todo.Id}"
+            prop.children [
+                Html.input [
+                    prop.className "edit"
+                    prop.type' "text"
+                    prop.name "name"
+                    prop.value todo.Text
+                ]
+            ]
+        ]
+
     let todoLi (todo: Todo) = 
         Html.li [
-            prop.className (if todo.Completed then "completed" else "todo")
+            prop.classes [
+                if todo.Completed then 
+                    "completed"
+            ]
             prop.id $"todo-{todo.Id}"
             hx.trigger "load"
             hx.get "todos/count"
@@ -289,7 +308,7 @@ module View =
                             hx.swap "outerHTML"
                         ]
                         Html.label [
-                            hx.post $"/todos/edit/{todo.Id}"
+                            hx.get $"/todos/edit/{todo.Id}"
                             hx.swap "outerHTML"
                             hx.target $"#todo-{todo.Id}"
                             prop.text todo.Text
@@ -338,21 +357,32 @@ module Controllers =
         }
 
 
+    let editTodo (id:int) (httpFunc: HttpFunc) (ctx: HttpContext) = task {
+
+        let repository = ctx.GetService<TodoRepository>()
+
+        let todo = repository.GetTodo id
+
+        let todoEditItem = View.editTodoText todo |> toHtml
+
+        return! todoEditItem httpFunc ctx
+
+    }
+
     let updateTodo (id: int) (httpFunc: HttpFunc) (ctx: HttpContext) =
         task {
+
             let! formCollection = ctx.Request.ReadFormAsync()
             let v = formCollection |> System.Text.Json.JsonSerializer.Serialize
-            printfn $"got: {v}"
+            printfn $"form got: {v}"
 
-            let value = formCollection["title"] |> Seq.head
-
-            let completed = bool.Parse(formCollection["completed"] |> Seq.head)
+            let txtValue = formCollection["name"] |> Seq.head
 
             let repository = ctx.GetService<TodoRepository>()
             
-            let updatedTodo = repository.UpdateTodo id value completed
+            let updatedTodo = repository.UpdateTodo id txtValue
             
-            let updatedTodoHtml = todoLi updatedTodo |> toHtml
+            let updatedTodoHtml = todoLi updatedTodo  |> toHtml
             
             return! updatedTodoHtml httpFunc ctx
         }
@@ -442,7 +472,8 @@ let endpoints =
         get "/todos/active" getActiveTodos
         postf "/todos/%i/toggle" toggle
         post "/todos/toggle-all" toggleAll
-        postf "/todos/edit/%i" updateTodo
+        getf "/todos/edit/%i" editTodo
+        postf "/todos/update/%i" updateTodo
         deletef "/todos/%i" deleteTodo
     }
 

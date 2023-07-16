@@ -1,0 +1,16 @@
+{
+    "version": "0.2.0",
+    "configurations": [
+        {
+            "name": "Launch FSI",
+            "request": "launch",
+            "type": "coreclr",
+            "program": "/home/codespace/.dotnet/sdk/7.0.302/FSharp/fsi.dll",
+            "args": ["${workspaceFolder}/program.fsx", "--debug+", "--debug:embedded", "--verbose" ],
+            "justMyCode": false,
+            "logging": {
+                "engineLogging": true
+            }
+        }
+    ]
+}

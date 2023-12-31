@@ -1,6 +1,7 @@
-#load "runtime-scripts/Microsoft.AspNetCore.App-7.0.5.fsx"
+#load "runtime-scripts/Microsoft.AspNetCore.App-7.0.11.fsx"
 #r "nuget: Saturn"
 #r "nuget: Feliz.ViewEngine.Htmx"
+#r "nuget: Unquote"
 
 open Microsoft.AspNetCore.Builder
 open Feliz.ViewEngine
@@ -11,52 +12,89 @@ open Saturn
 open Saturn.Endpoint
 open Microsoft.AspNetCore.Http
 open Microsoft.Extensions.DependencyInjection
-
+open Microsoft.Extensions.Logging
+open Swensen.Unquote
 
 [<AutoOpen>]
 module Domain =
 
-    type Todo = { Id: int; Text: string; Completed: bool }
+    type Todo = { 
+        Id: int
+        Text: string
+        Completed: bool 
+    }
 
-    type Model = { Todos: Todo list }
+    type Model = { 
+        Todos: Todo list 
+    }
 
 
 [<AutoOpen>]
 module Services = 
 
-    type TodoRepository() =
+    open Microsoft.FSharp.Quotations
+    open FSharp.Linq.RuntimeHelpers
+    open Swensen.Unquote.Operators
+
+    type TodoRepository(logger: ILogger<TodoRepository>) =
 
         let todos = new ResizeArray<Todo>()
 
-        member this.GetTodos(?filterPredicate: Todo -> bool) =
+        member this.GetTodos(?filterPredicate: Expr<Todo -> bool>) =
             let filter = 
                 if filterPredicate.IsSome then 
-                    filterPredicate.Value
-                else
-                    (fun _ -> true) 
 
-            todos |> Seq.filter(filter) |> List.ofSeq
+                    let predicate = filterPredicate.Value
+
+                    let asStr = decompile predicate
+
+                    logger.LogInformation($"filter: {asStr}")
+
+                    predicate
+                    
+                else
+                    <@ fun _ -> true @> 
+
+            let lambda = LeafExpressionConverter.EvaluateQuotation filter :?> (Todo -> bool)
+
+            let res = todos |> Seq.filter(lambda) |> List.ofSeq
+
+            logger.LogInformation($"get todos, result: {res.Length}")
+
+            res
 
         member this.GetTodo(id) =
             todos |> Seq.find(fun t -> t.Id = id)
 
         member this.AddTodo todoVal =
-            let newTodo = { Id = todos.Count + 1; Text = todoVal ; Completed = false }
+            let newTodo = { 
+                Id = todos.Count + 1
+                Text = todoVal
+                Completed = false
+                }
             todos.Add(newTodo)
             newTodo
 
         member this.DeleteTodo id =
             let foundTodo = todos.Find(fun t -> t.Id = id)
             todos.Remove(foundTodo)
+            logger.LogInformation($"deleted todo, {id}")
+
 
         member this.ClearAllTodos() =
             todos.Clear()
+            logger.LogInformation($"deleted all todos")
+
+        member this.DeleteCompletedTodos() =
+            todos.RemoveAll(fun t -> t.Completed)
+            logger.LogInformation($"deleted completed todos.")
 
         member this.UpdateTodo id todoVal =
             let foundTodo = todos.Find(fun t -> t.Id = id)
             let updatedTodo = { foundTodo with Text = todoVal }
             todos.Add(updatedTodo)
             todos.Remove(foundTodo) |> ignore
+            logger.LogInformation($"updated todo: {id} > {updatedTodo}")
             updatedTodo
 
         
@@ -65,27 +103,29 @@ module Services =
             let updatedTodo = { foundTodo with Completed = ( foundTodo.Completed |> not) }
             todos.Add(updatedTodo)
             todos.Remove(foundTodo) |> ignore
+            logger.LogInformation($"toggled todo: {id}")
             updatedTodo
 
         member this.ToggleAll() =
 
             let newTodos = 
                 todos 
-                |> Seq.map (fun foundTodo -> 
-                    let notCompleted = foundTodo.Completed |> not
-                    { foundTodo with Completed = notCompleted }
+                |> Seq.map (fun todo -> 
+                    let invertCompleted = todo.Completed |> not
+                    { todo with Completed = invertCompleted }
                 )
                 |> ResizeArray
 
             todos.Clear()
             todos.AddRange(newTodos)
+            logger.LogInformation($"toggled all todos")
             todos
 
 
 [<AutoOpen>]
 module View = 
 
-    // useful! https://thisfunctionaltom.github.io/Html2Feliz/
+    // IMPORTANT: very useful > https://thisfunctionaltom.github.io/Html2Feliz/
 
     let toHtml (view: ReactElement) = 
         view
@@ -122,24 +162,30 @@ module View =
             prop.children [
                 Html.li [
                     Html.a [
-                        prop.href "/todos"
-                        hx.swap "outerHTML"
+                        prop.href "#/"
+                        hx.trigger "click"
+                        hx.get "/todos"
+                        hx.swap "outerHtml"
                         hx.target "#todo-list"
                         prop.text "All"
                     ]
                 ]
                 Html.li [
                     Html.a [
-                        prop.href "/todos/active"
-                        hx.swap "outerHTML"
+                        prop.href "#/active"
+                        hx.trigger "click"
+                        hx.get "/todos/active"
+                        hx.swap "outerHtml"
                         hx.target "#todo-list"
                         prop.text "Active"
                     ]
                 ]
                 Html.li [
                     Html.a [
-                        prop.href "/todos/completed"
-                        hx.swap "outerHTML"
+                        prop.href "#/completed"
+                        hx.trigger "click"
+                        hx.get "/todos/completed"
+                        hx.swap "outerHtml"
                         hx.target "#todo-list"
                         prop.text "Completed"
                     ]
@@ -172,7 +218,7 @@ module View =
                     prop.className "clear-completed"
                     hx.confirm "Are you sure?"
                     hx.delete "/todos/completed"
-                    hx.swap "outerHTML"
+                    hx.swap "innerHTML"
                     hx.target "#todo-list"
                     prop.text "Clear completed"
                 ]
@@ -260,17 +306,6 @@ module View =
         
 
 
-        (**
-        
-
-        li(id='todo-' + todo.id, class={completed: todo.done === true})
-    .view
-        input.toggle(hx-patch='/todos/' + todo.id, type='checkbox', checked=todo.done, hx-target='#todo-' + todo.id, hx-swap="outerHTML")
-        label(hx-get='/todos/edit/' + todo.id, hx-target="#todo-" +  todo.id, hx-swap="outerHTML") #{todo.name}
-        button.destroy(hx-delete='/todos/' + todo.id, _="on htmx:afterOnLoad remove #todo-" + todo.id )
-        
-        *)
-
     let editTodoText (todo: Todo) =
         Html.form [
             hx.post $"/todos/update/{todo.Id}"
@@ -284,12 +319,37 @@ module View =
             ]
         ]
 
+
+    (* TODO: original impl...
+
+        li(id='todo-' + todo.id, 
+            class={completed: todo.done === true})
+
+        .view
+            input.toggle(hx-patch='/todos/' + todo.id, 
+                type='checkbox', 
+                checked=todo.done, 
+                hx-target='#todo-' + todo.id, 
+                hx-swap="outerHTML")
+
+
+            label(hx-get='/todos/edit/' + todo.id, 
+                hx-target="#todo-" +  todo.id, 
+                hx-swap="outerHTML") 
+                    #{todo.name}
+                    
+            button.destroy(
+                hx-delete='/todos/' + todo.id, 
+                _="on htmx:afterOnLoad remove #todo-" + todo.id )
+    *)
+
     let todoLi (todo: Todo) = 
         Html.li [
-            prop.classes [
-                if todo.Completed then 
-                    "completed"
-            ]
+
+            // class={completed: todo.done === true}
+            if todo.Completed then 
+                prop.className "completed"
+            
             prop.id $"todo-{todo.Id}"
             hx.trigger "load"
             hx.get "todos/count"
@@ -303,7 +363,9 @@ module View =
                             // prop.custom ("hx-patch", $"/todos/{todo.Id}")
                             hx.post $"/todos/{todo.Id}/toggle"
                             prop.type' "checkbox"
-                            prop.isChecked true
+                            if todo.Completed then
+                                prop.isChecked true
+
                             hx.target $"#todo-{todo.Id}"
                             hx.swap "outerHTML"
                         ]
@@ -344,7 +406,7 @@ module Controllers =
         task {
             let! formCollection = ctx.Request.ReadFormAsync()
             let v = formCollection |> System.Text.Json.JsonSerializer.Serialize
-            printfn $"got: {v}"
+            
             let value = formCollection["title"] |> Seq.head
 
             let repository = ctx.GetService<TodoRepository>()
@@ -374,7 +436,6 @@ module Controllers =
 
             let! formCollection = ctx.Request.ReadFormAsync()
             let v = formCollection |> System.Text.Json.JsonSerializer.Serialize
-            printfn $"form got: {v}"
 
             let txtValue = formCollection["name"] |> Seq.head
 
@@ -419,11 +480,21 @@ module Controllers =
 
             repository.DeleteTodo id |> ignore
 
-            printf $"count: {repository.GetTodos().Length}"
-            
             let empty = [] |> listToHtml
             
             return! empty httpFunc ctx
+        }
+
+    let deleteCompletedTodos (httpFunc: HttpFunc) (ctx: HttpContext) =
+        task {
+
+            let repository = ctx.GetService<TodoRepository>()
+
+            repository.DeleteCompletedTodos() |> ignore
+
+            let todosHtml = currentTodos repository
+            
+            return! todosHtml httpFunc ctx
         }
 
     let getTodos (httpFunc : HttpFunc) (ctx: HttpContext) = 
@@ -440,12 +511,29 @@ module Controllers =
             
             let repository = ctx.GetService<TodoRepository>()
 
-            let todosHtml = 
-                repository.GetTodos(fun t -> t.Completed = false) 
+            let active = repository.GetTodos(<@ fun todo -> todo.Completed = false @>) 
+
+            let activesHtml = 
+                active
                 |> List.map todoLi
                 |> listToHtml
             
-            return! todosHtml httpFunc ctx
+            return! activesHtml httpFunc ctx
+        }
+
+    let getCompletedTodos (httpFunc : HttpFunc) (ctx: HttpContext) = 
+        task {
+            
+            let repository = ctx.GetService<TodoRepository>()
+
+            let completed = repository.GetTodos(<@ _.Completed @>) 
+
+            let completedHtml = 
+                completed
+                |> List.map todoLi
+                |> listToHtml
+            
+            return! completedHtml httpFunc ctx
         }
 
     let getCount (httpFunc : HttpFunc) (ctx: HttpContext) = 
@@ -453,8 +541,6 @@ module Controllers =
             let repository = ctx.GetService<TodoRepository>()
 
             let totalTodos = repository.GetTodos().Length
-
-            printfn $"todos: {totalTodos}"
 
             let resultSpan = View.todosCount totalTodos |> toHtml
             
@@ -470,17 +556,24 @@ let endpoints =
         get "/todos" getTodos
         get "/todos/count" getCount
         get "/todos/active" getActiveTodos
+        get "/todos/completed" getCompletedTodos
         postf "/todos/%i/toggle" toggle
         post "/todos/toggle-all" toggleAll
         getf "/todos/edit/%i" editTodo
         postf "/todos/update/%i" updateTodo
         deletef "/todos/%i" deleteTodo
+        delete "/todos/completed" deleteCompletedTodos
     }
 
 let app =
     application {
         use_endpoint_router endpoints
-        service_config (fun s -> s.AddSingleton(new TodoRepository()))
+        // register repository as singleton
+        service_config (fun s -> s.AddSingleton<TodoRepository>(fun sp -> 
+            let logger = sp.GetRequiredService<ILogger<TodoRepository>>()
+            new TodoRepository(logger)
+            )
+        )
     }
 
 run app

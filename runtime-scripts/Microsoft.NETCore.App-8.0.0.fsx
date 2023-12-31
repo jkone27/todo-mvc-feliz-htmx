@@ -1,4 +1,4 @@
-#I """/usr/local/share/dotnet/shared/Microsoft.NETCore.App/7.0.11"""
+#I """/usr/local/share/dotnet/shared/Microsoft.NETCore.App/8.0.0"""
 #r "Microsoft.CSharp.dll"
 #r "System.Web.dll"
 #r "System.Diagnostics.Contracts.dll"

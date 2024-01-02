@@ -1,4 +1,5 @@
 # [TODO MVC](https://todomvc.com/) Feliz.HTMX
+![contrib](https://img.shields.io/badge/contributions-welcome-blue)
 
 ![preview](image.png)
 
